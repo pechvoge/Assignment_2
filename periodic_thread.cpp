@@ -6,20 +6,35 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <sys/syscall.h>
+#include <unistd.h>
+#include <fstream>
 
 static sigset_t sig_set;
+
+bool isPrime(int n) 
+{ 
+    // Corner case 
+    if (n <= 1) 
+        return false; 
+  
+    // Check from 2 to n-1 
+    for (int i = 2; i < n; i++) 
+        if (n % i == 0) 
+            return false; 
+  
+    return true; 
+} 
 
 void wait_next_activation(void)
 {
     int sig;
-    printf("Waiting for next activation\n");
     int res = sigwait(&sig_set, &sig);
     if (res != 0)
     {
         perror("sigwait failed");
         exit(1);
     }
-    printf("Activated\n");
 }
 
 int start_periodic_timer(uint64_t offset, int period)
@@ -40,9 +55,10 @@ int start_periodic_timer(uint64_t offset, int period)
     sigaddset(&sig_set, signal);
     sigprocmask(SIG_BLOCK, &sig_set, NULL);
 
-    memset(&sigev, 0, sizeof(struct sigevent));
-    sigev.sigev_notify = SIGEV_SIGNAL;
-    sigev.sigev_signo = signal;        
+    memset(&sigev, 0, sizeof(struct sigevent));    
+    sigev.sigev_notify = SIGEV_THREAD_ID;
+    sigev.sigev_signo = signal;
+    sigev._sigev_un._tid = syscall(SYS_gettid);
 
     err_creation = timer_create(CLOCK_REALTIME, &sigev, &timerid);
     if (err_creation < 0)
@@ -66,6 +82,12 @@ void* periodicThread(void *arg)
     //initialization
     uint64_t offset = 1000; //1ms
     int period = 1000; //1ms
+    std::ofstream timeLog("timeLog.txt");
+    if(!timeLog.is_open())
+    {
+        perror("Time log could not be opened.");
+    }
+    struct timespec start, wait, end;
 
     //start periodic timer
     int err_timer;
@@ -77,8 +99,16 @@ void* periodicThread(void *arg)
 
     while (1)
     {
-        for (int i = 0; i < 1000; i++){}
+        clock_gettime(CLOCK_REALTIME, &start);
+        for (int i = 0; i < 100000; i++){}
+
+        clock_gettime(CLOCK_REALTIME, &wait);
+
         wait_next_activation();
+        clock_gettime(CLOCK_REALTIME, &end);
+
+        timeLog << (wait.tv_sec - start.tv_sec) * 1000000 + (wait.tv_nsec - start.tv_nsec) / 1000 << "\t"; //ms
+        timeLog << (end.tv_sec - wait.tv_sec) * 1000000 + (end.tv_nsec - wait.tv_nsec) / 1000 << "\n"; //ms
     }
 }
 
