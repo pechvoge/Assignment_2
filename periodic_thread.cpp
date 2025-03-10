@@ -30,8 +30,7 @@ int start_periodic_timer(uint64_t offset, int period)
     struct itimerspec t;
     struct sigevent sigev;
     timer_t timerid;
-    int err_creation;
-    int err_settime;
+    int err_creation, err_settime;
     const int signal = SIGALRM;
    
     // Sets the timer values
@@ -84,7 +83,6 @@ void* periodicThread(void *arg)
         perror("Time log could not be opened.");
     }
     
-
     // Starts the periodic timer with an offset and period of 1ms
     int err_timer;
     err_timer = start_periodic_timer(offset, period);
@@ -97,7 +95,7 @@ void* periodicThread(void *arg)
     {
         // Measures time before the computation
         clock_gettime(CLOCK_MONOTONIC, &start);
-        for (int i = 0; i < 100000; i++){}
+        for (int i = 0; i < 1000000; i++){}
 
         // Measures time after the computation and before the sigwait function
         clock_gettime(CLOCK_MONOTONIC, &wait);
