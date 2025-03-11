@@ -105,16 +105,16 @@ void* periodicThread(void *arg)
     int period = 1000; //1 ms
     size_t buffer_size = 1024;
     struct timespec start, wait, end;
-    int write_fd, proxy_fd;
+    int write_fd, proxy_fd, computation_time, waiting_time;
     const char *log_msg;
     
     int write_fd = open("./timeLog.txt", O_WRONLY|O_CREAT);
-    if(file_dir < 0)
+    if(write_fd < 0)
         {
             perror("Time log could not be opened.");
         }
     // Creates a proxy for the current thread
-    proxy_fd = evl_create_proxy(file_dir,buffer_size,"Real-time proxy");
+    proxy_fd = evl_create_proxy(write_fd,buffer_size,"Real-time proxy");
     
     // Starts the periodic timer with an offset and period of 1ms
     int err_timer = start_periodic_timer(offset, period);
@@ -137,15 +137,12 @@ void* periodicThread(void *arg)
         evl_readclock(CLOCK_MONOTONIC, &end);
 
         // Writes the computation time and the waiting time to the file
-        *log_msg = (wait.tv_sec - start.tv_sec) * 1000000 + (wait.tv_nsec - start.tv_nsec) / 1000 << "\t"; //ms
-        oob_write(proxy_fd, log_msg, strlen(log_msg));
+        computation_time = (wait.tv_sec - start.tv_sec) * 1000000 + (wait.tv_nsec - start.tv_nsec) / 1000;
+        waiting_time = (end.tv_sec - wait.tv_sec) * 1000000 + (end.tv_nsec - wait.tv_nsec) / 1000;
+        oob_write(proxy_fd, &log_msg, sizeof(log_msg));
 
         *log_msg = (end.tv_sec - wait.tv_sec) * 1000000 + (end.tv_nsec - wait.tv_nsec) / 1000 << "\n"; //ms
-        oob_write(proxy_fd, log_msg, strlen(log_msg));
-
-        // Writes the computation time and the waiting time to the file
-        timeLog << (wait.tv_sec - start.tv_sec) * 1000000 + (wait.tv_nsec - start.tv_nsec) / 1000 << "\t"; //ms
-        timeLog << (end.tv_sec - wait.tv_sec) * 1000000 + (end.tv_nsec - wait.tv_nsec) / 1000 << "\n"; //ms
+        oob_write(proxy_fd, &log_msg, sizeof(log_msg));
     }
     evl_detach_self();
 }
