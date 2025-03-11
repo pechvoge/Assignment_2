@@ -23,13 +23,7 @@ static sigset_t sig_set;
 void wait_next_activation(void)
 {
     // Waits for a pending asynchronous signal 
-    int sig;
-    int res = sigwait(&sig_set, &sig);
-    if (res != 0)
-    {
-        perror("Sigwait failed");
-        exit(1);
-    }
+    
 }
 
 int start_periodic_timer(uint64_t offset, int period)
@@ -47,18 +41,8 @@ int start_periodic_timer(uint64_t offset, int period)
     t.it_interval.tv_sec = period / 1000000;
     t.it_interval.tv_nsec = (period % 1000000)*1000;
 
-    // Creates an empty set and adds a signal to it and blocks this signal  
-    sigemptyset(&sig_set);
-    sigaddset(&sig_set, signal);
-    sigprocmask(SIG_BLOCK, &sig_set, NULL);
-
-    // Initializes the sigevent structure
-    memset(&sigev, 0, sizeof(struct sigevent));    
-
-    // Setup the sigevent structure to notify the thread with current ID
-    sigev.sigev_notify = SIGEV_THREAD_ID;
-    sigev.sigev_signo = signal;
-    sigev._sigev_un._tid = syscall(SYS_gettid);
+    // Events 
+    
 
     // Set CPU affinity to core 1 before attaching to EVL core
     cpu_set_t cpu_set;
@@ -72,7 +56,7 @@ int start_periodic_timer(uint64_t offset, int period)
     }
 
     // Creates the EVL timer with a monotonic clock
-    err_creation = evl_new_timer(EVL_CLOCK_MONOTONIC, &timerid);
+    err_creation = evl_new_timer(EVL_CLOCK_MONOTONIC);
     if (err_creation < 0)
     {
         perror("Timer creation failed.");
@@ -88,7 +72,7 @@ int start_periodic_timer(uint64_t offset, int period)
     }
 
     // Sets the EVL timer
-    err_settime = evl_set_timer(timerid, &t);
+    err_settime = evl_set_timer(err_creation, &t, NULL);
     if (err_settime < 0)
     {
         perror("Setting timer failed.");
@@ -108,13 +92,13 @@ void* periodicThread(void *arg)
     int write_fd, proxy_fd, computation_time, waiting_time;
     const char *log_msg;
     
-    int write_fd = open("./timeLog.txt", O_WRONLY|O_CREAT);
+    write_fd = open("./timeLog.txt", O_WRONLY|O_CREAT);
     if(write_fd < 0)
         {
             perror("Time log could not be opened.");
         }
     // Creates a proxy for the current thread
-    proxy_fd = evl_create_proxy(write_fd,buffer_size,"Real-time proxy");
+    //proxy_fd = evl_create_proxy(write_fd,buffer_size,"Realtime proxy");
     
     // Starts the periodic timer with an offset and period of 1ms
     int err_timer = start_periodic_timer(offset, period);
@@ -126,23 +110,22 @@ void* periodicThread(void *arg)
     while (1)
     {
         // Measures time before the computation
-        evl_readclock(CLOCK_MONOTONIC, &start);
+        evl_read_clock(CLOCK_MONOTONIC, &start);
         for (int i = 0; i < 1000000; i++){}
 
         // Measures time after the computation and before the wait function
-        evl_readclock(CLOCK_MONOTONIC, &wait);
+        evl_read_clock(CLOCK_MONOTONIC, &wait);
 
         wait_next_activation();
         // Measures time after the wait function
-        evl_readclock(CLOCK_MONOTONIC, &end);
+        evl_read_clock(CLOCK_MONOTONIC, &end);
 
         // Writes the computation time and the waiting time to the file
-        computation_time = (wait.tv_sec - start.tv_sec) * 1000000 + (wait.tv_nsec - start.tv_nsec) / 1000;
-        waiting_time = (end.tv_sec - wait.tv_sec) * 1000000 + (end.tv_nsec - wait.tv_nsec) / 1000;
-        oob_write(proxy_fd, &log_msg, sizeof(log_msg));
+        //computation_time = (wait.tv_sec - start.tv_sec) * 1000000 + (wait.tv_nsec - start.tv_nsec) / 1000;
+        //waiting_time = (end.tv_sec - wait.tv_sec) * 1000000 + (end.tv_nsec - wait.tv_nsec) / 1000;
+        //oob_write(proxy_fd, &log_msg, sizeof(log_msg));
 
-        *log_msg = (end.tv_sec - wait.tv_sec) * 1000000 + (end.tv_nsec - wait.tv_nsec) / 1000 << "\n"; //ms
-        oob_write(proxy_fd, &log_msg, sizeof(log_msg));
+        //oob_write(proxy_fd, &log_msg, sizeof(log_msg));
     }
     evl_detach_self();
 }
