@@ -30,10 +30,8 @@ int start_periodic_timer(uint64_t offset, int period)
 {
     // Initialization
     struct itimerspec t;
-    struct sigevent sigev;
     timer_t timerid;
     int err_creation, err_settime, err_attach, err_core;
-    const int signal = SIGALRM;
    
     // Sets the timer values
     t.it_value.tv_sec = offset / 1000000;
@@ -42,7 +40,7 @@ int start_periodic_timer(uint64_t offset, int period)
     t.it_interval.tv_nsec = (period % 1000000)*1000;
 
     // Events 
-    
+
 
     // Set CPU affinity to core 1 before attaching to EVL core
     cpu_set_t cpu_set;
