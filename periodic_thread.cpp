@@ -10,6 +10,11 @@
 #include <unistd.h>
 #include <fstream>
 
+int amountDigitsDeterminer(int number);
+char* intToASCII(int number);
+int getCharArrayLength(const char* array);
+char* createLogMsg(int computeTime, int waitTime);
+
 static sigset_t sig_set;
 
 void wait_next_activation(void)
@@ -76,6 +81,7 @@ void* periodicThread(void *arg)
     // Initialization
     uint64_t offset = 1000; //1 ms
     int period = 1000; //1 ms
+    int waitTime, computeTime;
     struct timespec start, wait, end;
     std::ofstream timeLog("timeLog.txt");
     if(!timeLog.is_open())
@@ -105,8 +111,11 @@ void* periodicThread(void *arg)
         clock_gettime(CLOCK_MONOTONIC, &end);
 
         // Writes the computation time and the waiting time to the file
-        timeLog << (wait.tv_sec - start.tv_sec) * 1000000 + (wait.tv_nsec - start.tv_nsec) / 1000 << "\t"; //ms
-        timeLog << (end.tv_sec - wait.tv_sec) * 1000000 + (end.tv_nsec - wait.tv_nsec) / 1000 << "\n"; //ms
+        computeTime = (wait.tv_sec - start.tv_sec) * 1000000 + (wait.tv_nsec - start.tv_nsec) / 1000; //ms
+        waitTime = (end.tv_sec - wait.tv_sec) * 1000000 + (end.tv_nsec - wait.tv_nsec) / 1000; //ms 
+        timeLog << createLogMsg(computeTime, waitTime);
+        //timeLog << computeTime << "\t"; //ms
+        //timeLog << waitTime << "\n"; //ms
     }
 }
 
@@ -118,4 +127,71 @@ int main(){
     // Looks whether the new thread is finished
     pthread_join(thread, NULL);
     return 0;
+}
+
+int amountDigitsDeterminer(int number)
+{
+    if (number == 0)
+	{
+		return 1;
+	}
+    
+	int amountDigits = 0;
+	while (number != 0)
+	{
+		number /= 10;
+		amountDigits++;
+	}
+	return amountDigits;
+}
+
+char* intToASCII(int number)
+{
+    const int amountDigits = amountDigitsDeterminer(number);
+    char* myASCIIchar = new char[amountDigits + 1]; // +1 for null terminator
+    for (int i = amountDigits - 1; i >= 0; i--)
+    {
+        myASCIIchar[i] = static_cast<char>((number % 10) + '0');
+        number /= 10;
+    }
+    myASCIIchar[amountDigits] = '\0'; // null terminator
+    return myASCIIchar;
+}
+
+int getCharArrayLength(const char* array)
+{
+    int length = 0;
+    while (array[length] != '\0')
+    {
+        length++;
+    }
+    return length;
+}
+
+char* createLogMsg(int computeTime, int waitTime)
+{
+    char* computeChar = intToASCII(computeTime);
+    int computeCharLength = getCharArrayLength(computeChar);    
+    char* waitChar = intToASCII(waitTime);
+    int waitCharLength = getCharArrayLength(waitChar);
+    
+    // Allocate enough space for both strings, a tab, a newline, and the null terminator
+    char* logMsg = new char[computeCharLength + waitCharLength + 3];
+
+	// Combine both char arrays into log message
+    for (int i = 0; i < computeCharLength; i++)
+    {
+        logMsg[i] = computeChar[i];
+    }
+    logMsg[computeCharLength] = '\t';
+    for (int i = 0; i < waitCharLength; i++)
+    {
+        logMsg[computeCharLength + 1 + i] = waitChar[i];
+    }
+    logMsg[computeCharLength + 1 + waitCharLength] = '\n';
+    logMsg[computeCharLength + 1 + waitCharLength + 1] = '\0';
+    
+    delete[] computeChar;
+    delete[] waitChar;
+    return logMsg;
 }
