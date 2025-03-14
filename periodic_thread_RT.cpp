@@ -104,8 +104,7 @@ void* periodicThread(void *arg)
     size_t buffer_size = 1024;
     struct timespec start, wait, end;
     int write_fd, proxy_fd, computation_time, waiting_time;
-    char *log_msg;
-    
+       
     write_fd = open("./timeLog.txt", O_WRONLY|O_CREAT);
     if(write_fd < 0)
         {
@@ -137,10 +136,10 @@ void* periodicThread(void *arg)
         // Writes the computation time and the waiting time to the file
         computation_time = (wait.tv_sec - start.tv_sec) * 1000000 + (wait.tv_nsec - start.tv_nsec) / 1000;
         waiting_time = (end.tv_sec - wait.tv_sec) * 1000000 + (end.tv_nsec - wait.tv_nsec) / 1000;
-        log_msg = createLogMsg(computation_time, waiting_time);
         
+        char *log_msg = createLogMsg(computation_time, waiting_time);
         oob_write(proxy_fd, log_msg, sizeof(log_msg));
-        oob_write(proxy_fd, log_msg, sizeof(log_msg));
+        delete[] log_msg;
     }
     evl_detach_self();
 }
