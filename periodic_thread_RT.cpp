@@ -22,8 +22,13 @@ static sigset_t sig_set;
 
 void wait_next_activation(void)
 {
-    // Waits for a pending asynchronous signal 
-    
+    // Waits until the next activation
+    unsigned long overruns;
+    int err_wait = evl_wait_period(&overruns);
+    if (err_wait < 0)
+    {
+        perror("Waiting for next activation failed.");
+    }
 }
 
 int start_periodic_timer(uint64_t offset, int period)
@@ -32,15 +37,15 @@ int start_periodic_timer(uint64_t offset, int period)
     struct itimerspec t;
     timer_t timerid;
     int err_creation, err_settime, err_attach, err_core;
+
+    ktime_t koffset = ktime_set(0, offset*1000); // 1 ms
+    ktime_t kperiod = ktime_set(0, period*1000); // 1 ms
    
-    // Sets the timer values
-    t.it_value.tv_sec = offset / 1000000;
-    t.it_value.tv_nsec = (offset % 1000000)*1000;
-    t.it_interval.tv_sec = period / 1000000;
-    t.it_interval.tv_nsec = (period % 1000000)*1000;
-
-    // Events 
-
+    // // Sets the timer values
+    // t.it_value.tv_sec = offset / 1000000;
+    // t.it_value.tv_nsec = (offset % 1000000)*1000;
+    // t.it_interval.tv_sec = period / 1000000;
+    // t.it_interval.tv_nsec = (period % 1000000)*1000;
 
     // Set CPU affinity to core 1 before attaching to EVL core
     cpu_set_t cpu_set;
@@ -53,29 +58,36 @@ int start_periodic_timer(uint64_t offset, int period)
         return -1;
     }
 
-    // Creates the EVL timer with a monotonic clock
-    err_creation = evl_new_timer(EVL_CLOCK_MONOTONIC);
-    if (err_creation < 0)
+    int err_period = evl_setperiod(&evl_mono_clock,koffset,kperiod);
+    if (err_period < 0)
     {
-        perror("Timer creation failed.");
+        perror("Setting period failed.");
         return -1;
     }
 
-    // Attaches the current thread to the EVL core
-    err_attach = evl_attach_self("periodic_thread_RT");
-    if (err_attach < 0)
-    {
-        perror("Attaching to EVL failed.");
-        return -1;
-    }
+    // // Creates the EVL timer with a monotonic clock
+    // err_creation = evl_new_timer(EVL_CLOCK_MONOTONIC);
+    // if (err_creation < 0)
+    // {
+    //     perror("Timer creation failed.");
+    //     return -1;
+    // }
 
-    // Sets the EVL timer
-    err_settime = evl_set_timer(err_creation, &t, NULL);
-    if (err_settime < 0)
-    {
-        perror("Setting timer failed.");
-        return -1;
-    }
+    // // Attaches the current thread to the EVL core
+    // err_attach = evl_attach_self("periodic_thread_RT");
+    // if (err_attach < 0)
+    // {
+    //     perror("Attaching to EVL failed.");
+    //     return -1;
+    // }
+
+    // // Sets the EVL timer
+    // err_settime = evl_set_timer(err_creation, &t, NULL);
+    // if (err_settime < 0)
+    // {
+    //     perror("Setting timer failed.");
+    //     return -1;
+    // }
     printf("Timer started\n");
     return 0;
 }
@@ -96,7 +108,7 @@ void* periodicThread(void *arg)
             perror("Time log could not be opened.");
         }
     // Creates a proxy for the current thread
-    //proxy_fd = evl_create_proxy(write_fd,buffer_size,"Realtime proxy");
+    proxy_fd = evl_create_proxy(write_fd,buffer_size,"Realtime proxy");
     
     // Starts the periodic timer with an offset and period of 1ms
     int err_timer = start_periodic_timer(offset, period);
@@ -119,11 +131,11 @@ void* periodicThread(void *arg)
         evl_read_clock(CLOCK_MONOTONIC, &end);
 
         // Writes the computation time and the waiting time to the file
-        //computation_time = (wait.tv_sec - start.tv_sec) * 1000000 + (wait.tv_nsec - start.tv_nsec) / 1000;
-        //waiting_time = (end.tv_sec - wait.tv_sec) * 1000000 + (end.tv_nsec - wait.tv_nsec) / 1000;
-        //oob_write(proxy_fd, &log_msg, sizeof(log_msg));
-
-        //oob_write(proxy_fd, &log_msg, sizeof(log_msg));
+        computation_time = (wait.tv_sec - start.tv_sec) * 1000000 + (wait.tv_nsec - start.tv_nsec) / 1000;
+        waiting_time = (end.tv_sec - wait.tv_sec) * 1000000 + (end.tv_nsec - wait.tv_nsec) / 1000;
+        
+        oob_write(proxy_fd, log_msg, sizeof(log_msg));
+        oob_write(proxy_fd, log_msg, sizeof(log_msg));
     }
     evl_detach_self();
 }
