@@ -29,7 +29,7 @@ int amountDigitsDeterminer(int number)
 	{
 		return 1;
 	}
-	
+
 	int amountDigits = 0;
 	while (number != 0)
 	{
