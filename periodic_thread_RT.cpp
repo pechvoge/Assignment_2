@@ -17,18 +17,21 @@
 #include <sys/mman.h>
 #include <sched.h>
 
+int amountDigitsDeterminer(int number);
+char* intToASCII(int number);
+int getCharArrayLength(const char* array);
+char* createLogMsg(int computeTime, int waitTime);
 
 static sigset_t sig_set;
 
 void wait_next_activation(void)
 {
-    // Waits for a pending asynchronous signal 
-    int sig;
-    int res = sigwait(&sig_set, &sig);
-    if (res != 0)
+    // Waits until the next activation
+    unsigned long overruns;
+    int err_wait = evl_wait_period(&overruns);
+    if (err_wait < 0)
     {
-        perror("Sigwait failed");
-        exit(1);
+        perror("Waiting for next activation failed.");
     }
 }
 
@@ -36,29 +39,17 @@ int start_periodic_timer(uint64_t offset, int period)
 {
     // Initialization
     struct itimerspec t;
-    struct sigevent sigev;
     timer_t timerid;
     int err_creation, err_settime, err_attach, err_core;
-    const int signal = SIGALRM;
+
+    ktime_t koffset = ktime_set(0, offset*1000); // 1 ms
+    ktime_t kperiod = ktime_set(0, period*1000); // 1 ms
    
-    // Sets the timer values
-    t.it_value.tv_sec = offset / 1000000;
-    t.it_value.tv_nsec = (offset % 1000000)*1000;
-    t.it_interval.tv_sec = period / 1000000;
-    t.it_interval.tv_nsec = (period % 1000000)*1000;
-
-    // Creates an empty set and adds a signal to it and blocks this signal  
-    sigemptyset(&sig_set);
-    sigaddset(&sig_set, signal);
-    sigprocmask(SIG_BLOCK, &sig_set, NULL);
-
-    // Initializes the sigevent structure
-    memset(&sigev, 0, sizeof(struct sigevent));    
-
-    // Setup the sigevent structure to notify the thread with current ID
-    sigev.sigev_notify = SIGEV_THREAD_ID;
-    sigev.sigev_signo = signal;
-    sigev._sigev_un._tid = syscall(SYS_gettid);
+    // // Sets the timer values
+    // t.it_value.tv_sec = offset / 1000000;
+    // t.it_value.tv_nsec = (offset % 1000000)*1000;
+    // t.it_interval.tv_sec = period / 1000000;
+    // t.it_interval.tv_nsec = (period % 1000000)*1000;
 
     // Set CPU affinity to core 1 before attaching to EVL core
     cpu_set_t cpu_set;
@@ -71,29 +62,36 @@ int start_periodic_timer(uint64_t offset, int period)
         return -1;
     }
 
-    // Creates the EVL timer with a monotonic clock
-    err_creation = evl_new_timer(EVL_CLOCK_MONOTONIC, &timerid);
-    if (err_creation < 0)
+    int err_period = evl_setperiod(&evl_mono_clock,koffset,kperiod);
+    if (err_period < 0)
     {
-        perror("Timer creation failed.");
+        perror("Setting period failed.");
         return -1;
     }
 
-    // Attaches the current thread to the EVL core
-    err_attach = evl_attach_self("periodic_thread_RT");
-    if (err_attach < 0)
-    {
-        perror("Attaching to EVL failed.");
-        return -1;
-    }
+    // // Creates the EVL timer with a monotonic clock
+    // err_creation = evl_new_timer(EVL_CLOCK_MONOTONIC);
+    // if (err_creation < 0)
+    // {
+    //     perror("Timer creation failed.");
+    //     return -1;
+    // }
 
-    // Sets the EVL timer
-    err_settime = evl_set_timer(timerid, &t);
-    if (err_settime < 0)
-    {
-        perror("Setting timer failed.");
-        return -1;
-    }
+    // // Attaches the current thread to the EVL core
+    // err_attach = evl_attach_self("periodic_thread_RT");
+    // if (err_attach < 0)
+    // {
+    //     perror("Attaching to EVL failed.");
+    //     return -1;
+    // }
+
+    // // Sets the EVL timer
+    // err_settime = evl_set_timer(err_creation, &t, NULL);
+    // if (err_settime < 0)
+    // {
+    //     perror("Setting timer failed.");
+    //     return -1;
+    // }
     printf("Timer started\n");
     return 0;
 }
@@ -106,15 +104,15 @@ void* periodicThread(void *arg)
     size_t buffer_size = 1024;
     struct timespec start, wait, end;
     int write_fd, proxy_fd, computation_time, waiting_time;
-    const char *log_msg;
+    char *log_msg;
     
-    int write_fd = open("./timeLog.txt", O_WRONLY|O_CREAT);
+    write_fd = open("./timeLog.txt", O_WRONLY|O_CREAT);
     if(write_fd < 0)
         {
             perror("Time log could not be opened.");
         }
     // Creates a proxy for the current thread
-    proxy_fd = evl_create_proxy(write_fd,buffer_size,"Real-time proxy");
+    proxy_fd = evl_create_proxy(write_fd,buffer_size,"Realtime proxy");
     
     // Starts the periodic timer with an offset and period of 1ms
     int err_timer = start_periodic_timer(offset, period);
@@ -126,23 +124,23 @@ void* periodicThread(void *arg)
     while (1)
     {
         // Measures time before the computation
-        evl_readclock(CLOCK_MONOTONIC, &start);
+        evl_read_clock(CLOCK_MONOTONIC, &start);
         for (int i = 0; i < 1000000; i++){}
 
         // Measures time after the computation and before the wait function
-        evl_readclock(CLOCK_MONOTONIC, &wait);
+        evl_read_clock(CLOCK_MONOTONIC, &wait);
 
         wait_next_activation();
         // Measures time after the wait function
-        evl_readclock(CLOCK_MONOTONIC, &end);
+        evl_read_clock(CLOCK_MONOTONIC, &end);
 
         // Writes the computation time and the waiting time to the file
         computation_time = (wait.tv_sec - start.tv_sec) * 1000000 + (wait.tv_nsec - start.tv_nsec) / 1000;
         waiting_time = (end.tv_sec - wait.tv_sec) * 1000000 + (end.tv_nsec - wait.tv_nsec) / 1000;
-        oob_write(proxy_fd, &log_msg, sizeof(log_msg));
-
-        *log_msg = (end.tv_sec - wait.tv_sec) * 1000000 + (end.tv_nsec - wait.tv_nsec) / 1000 << "\n"; //ms
-        oob_write(proxy_fd, &log_msg, sizeof(log_msg));
+        log_msg = createLogMsg(computation_time, waiting_time);
+        
+        oob_write(proxy_fd, log_msg, sizeof(log_msg));
+        oob_write(proxy_fd, log_msg, sizeof(log_msg));
     }
     evl_detach_self();
 }
@@ -164,4 +162,71 @@ int main(){
     // Looks whether the new thread is finished
     pthread_join(thread, NULL);
     return 0;
+}
+
+int amountDigitsDeterminer(int number)
+{
+	if (number == 0)
+	{
+		return 1;
+	}
+	
+	int amountDigits = 0;
+	while (number != 0)
+	{
+		number /= 10;
+		amountDigits++;
+	}
+	return amountDigits;
+}
+
+char* intToASCII(int number)
+{
+    const int amountDigits = amountDigitsDeterminer(number);
+    char* myASCIIchar = new char[amountDigits + 1]; // +1 for null terminator
+    for (int i = amountDigits - 1; i >= 0; i--)
+    {
+        myASCIIchar[i] = static_cast<char>((number % 10) + '0');
+        number /= 10;
+    }
+    myASCIIchar[amountDigits] = '\0';
+    return myASCIIchar;
+}
+
+int getCharArrayLength(const char* array)
+{
+    int length = 0;
+    while (array[length] != '\0')
+    {
+        length++;
+    }
+    return length;
+}
+
+char* createLogMsg(int computeTime, int waitTime)
+{
+    char* computeChar = intToASCII(computeTime);
+    int computeCharLength = getCharArrayLength(computeChar);    
+    char* waitChar = intToASCII(waitTime);
+    int waitCharLength = getCharArrayLength(waitChar);
+    
+    // Allocate enough space for both strings, a tab, a newline, and the null terminator
+    char* logMsg = new char[computeCharLength + waitCharLength + 3];
+
+	// Combine both char arrays into log message
+    for (int i = 0; i < computeCharLength; i++)
+    {
+        logMsg[i] = computeChar[i];
+    }
+    logMsg[computeCharLength] = '\t';
+    for (int i = 0; i < waitCharLength; i++)
+    {
+        logMsg[computeCharLength + 1 + i] = waitChar[i];
+    }
+    logMsg[computeCharLength + 1 + waitCharLength] = '\n';
+    logMsg[computeCharLength + 1 + waitCharLength + 1] = '\0';
+    
+    delete[] computeChar;
+    delete[] waitChar;
+    return logMsg;
 }
