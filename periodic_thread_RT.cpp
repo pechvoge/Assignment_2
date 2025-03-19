@@ -23,30 +23,45 @@ char* intToASCII(int number);
 int getCharArrayLength(const char* array);
 char* createLogMsg(int computeTime, int waitTime);
 
-static sigset_t sig_set;
-
-void wait_next_activation(void)
+// This function has been adapted from EVL: https://v4.xenomai.org/core/user-api/timer/
+void timespec_add_ns(struct timespec *__restrict r,
+                  const struct timespec *__restrict t,
+             long offset)
 {
-    // Waits until the next activation
-    
+    long s, ns;
+
+    s = offset / 1000000000;
+    ns = offset - s * 1000000000;
+    r->tv_sec = t->tv_sec + s;
+    r->tv_nsec = t->tv_nsec + ns;
+    if (r->tv_nsec >= 1000000000) {
+        r->tv_sec++;
+        r->tv_nsec -= 1000000000;
+    }
 }
 
-int start_periodic_timer(uint64_t offset, int period)
+void wait_next_activation(const int* tmfd)
+{
+    __u64 ticks;
+    // Waits until the next activation
+    int rfd = oob_read(*tmfd, &ticks, sizeof(ticks));
+    if(rfd < 0)
+    {
+        perror("Reading from timer failed.");
+    }
+}
+
+int start_periodic_timer(uint64_t offset, int period, int* tmfd)
 {
     // Initialization
     struct itimerspec t;
     struct evl_sched_attrs attrs;
     attrs.sched_policy = SCHED_FIFO;
-    attrs.sched_priority = 10;
+    attrs.sched_priority = 1;
     timer_t timerid;
-    int err_creation, err_settime, err_attach, err_core, err_sched;
+    int err_settime, err_attach, err_core, err_sched, err_clock;
+    struct timespec current_time;
    
-    // // Sets the timer values
-    t.it_value.tv_sec = offset / 1000000;
-    t.it_value.tv_nsec = (offset % 1000000)*1000;
-    t.it_interval.tv_sec = period / 1000000;
-    t.it_interval.tv_nsec = (period % 1000000)*1000;
-
     // Set CPU affinity to core 1 before attaching to EVL core
     cpu_set_t cpu_set;
     CPU_ZERO(&cpu_set); // clears cpu_set
@@ -66,29 +81,42 @@ int start_periodic_timer(uint64_t offset, int period)
         return -1;
     }
 
-    // Creates the EVL timer with a monotonic clock
-    err_creation = evl_new_timer(EVL_CLOCK_MONOTONIC);
-    if (err_creation < 0)
-    {
-        fprintf(stderr, "Timer creation failed: %s\n", strerror(err_creation));
-        return -1;
-    }
-
     err_sched = evl_set_schedattr(err_attach, &attrs);
     if (err_sched != 0)
     {
-        fprintf(stderr, "Scheduling failed: %s\n", strerror(err_sched));
+        fprintf(stderr, "Setting scheduling attributes failed: %s\n", strerror(err_sched));
         return -1;
     }
 
+    // Creates the EVL timer with a monotonic clock
+    *tmfd = evl_new_timer(EVL_CLOCK_MONOTONIC);
+    if (*tmfd < 0)
+    {
+        fprintf(stderr, "Timer creation failed: %s\n", strerror(tmfd));
+        return -1;
+    }
+
+    // Gets the current time
+    err_clock = evl_read_clock(EVL_CLOCK_MONOTONIC, &current_time);
+    if (err_clock < 0)
+    {
+        perror("Reading clock failed.");
+        return -1;
+    }
+
+    // Sets the timer values
+    timespec_add_ns(&t.it_value, &current_time, offset);
+    t.it_interval.tv_sec = period / 1000000;
+    t.it_interval.tv_nsec = (period % 1000000)*1000;
+
     // Sets the EVL timer
-    err_settime = evl_set_timer(err_creation, &t, NULL);
+    err_settime = evl_set_timer(*tmfd, &t, NULL);
     if (err_settime < 0)
     {
         perror("Setting timer failed.");
         return -1;
     }
-    printf("Timer started\n");
+    evl_printf("Timer started\n");
     return 0;
 }
 
@@ -97,9 +125,15 @@ void* periodicThread(void *arg)
     // Initialization
     uint64_t offset = 1000; //1 ms
     int period = 1000; //1 ms
-    size_t buffer_size = 1024;
+    int buffer_size = 1024;
     struct timespec start, wait, end;
-    int write_fd, proxy_fd, computation_time, waiting_time;
+    int write_fd, proxy_fd, tmfd;
+    int computation_time[1024], waiting_time[1024];
+    std::ofstream timeLog("timeLog.txt");
+    if(!timeLog.is_open())
+    {
+        perror("Time log could not be opened.");
+    }
 
     // write_fd = open("./timeLog.txt", O_WRONLY|O_CREAT);
     // if(write_fd < 0)
@@ -110,13 +144,13 @@ void* periodicThread(void *arg)
     //proxy_fd = evl_new_proxy(write_fd,buffer_size,"Realtime proxy");
     
     // Starts the periodic timer with an offset and period of 1ms
-    int err_timer = start_periodic_timer(offset, period);
+    int err_timer = start_periodic_timer(offset, period, &tmfd);
     if (err_timer < 0)
     {   
         perror("Starting periodic timer failed.");
     }
 
-    while (1)
+    for (int j =0; j < buffer_size; j++)
     {
         // Measures time before the computation
         evl_read_clock(CLOCK_MONOTONIC, &start);
@@ -125,19 +159,31 @@ void* periodicThread(void *arg)
         // Measures time after the computation and before the wait function
         evl_read_clock(CLOCK_MONOTONIC, &wait);
 
-        wait_next_activation();
+        wait_next_activation(&tmfd);
         // Measures time after the wait function
         evl_read_clock(CLOCK_MONOTONIC, &end);
 
         // Writes the computation time and the waiting time to the file
-        // computation_time = (wait.tv_sec - start.tv_sec) * 1000000 + (wait.tv_nsec - start.tv_nsec) / 1000;
-        // waiting_time = (end.tv_sec - wait.tv_sec) * 1000000 + (end.tv_nsec - wait.tv_nsec) / 1000;
+        computation_time[j] = (wait.tv_sec - start.tv_sec) * 1000000 + (wait.tv_nsec - start.tv_nsec) / 1000;
+        waiting_time[j] = (end.tv_sec - wait.tv_sec) * 1000000 + (end.tv_nsec - wait.tv_nsec) / 1000;
         // char *log_msg = createLogMsg(computation_time, waiting_time);
         
         // oob_write(proxy_fd, log_msg, sizeof(log_msg));
         // delete[] log_msg;
     }
+    // Detaches the current thread from the EVL core
     evl_detach_self();
+
+    // Writes timing data to file
+    for (int i = 0; i < buffer_size; i++)
+    {
+        timeLog << computation_time[i] << "\t"; //ms
+        timeLog << waiting_time[i] << "\n"; //ms
+    }
+    timeLog.close();
+
+    // close(write_fd);
+    // close(proxy_fd);
 }
 
 int main(){
