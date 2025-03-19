@@ -92,7 +92,7 @@ int start_periodic_timer(uint64_t offset, int period, int* tmfd)
     *tmfd = evl_new_timer(EVL_CLOCK_MONOTONIC);
     if (*tmfd < 0)
     {
-        fprintf(stderr, "Timer creation failed: %s\n", strerror(tmfd));
+        fprintf(stderr, "Timer creation failed: %s\n", strerror(*tmfd));
         return -1;
     }
 
@@ -125,23 +125,23 @@ void* periodicThread(void *arg)
     // Initialization
     uint64_t offset = 1000; //1 ms
     int period = 1000; //1 ms
-    int buffer_size = 1024;
+    constexpr int buffer_size = 30000;
     struct timespec start, wait, end;
     int write_fd, proxy_fd, tmfd;
-    int computation_time[1024], waiting_time[1024];
+    float computation_time[buffer_size], waiting_time[buffer_size];
     std::ofstream timeLog("timeLog.txt");
     if(!timeLog.is_open())
     {
         perror("Time log could not be opened.");
     }
 
-    // write_fd = open("./timeLog.txt", O_WRONLY|O_CREAT);
+    // write_fd = open("./timeLogProxy.txt", O_WRONLY|O_CREAT);
     // if(write_fd < 0)
     //     {
     //         perror("Time log could not be opened.");
     //     }
-    // Creates a proxy for the current thread
-    //proxy_fd = evl_new_proxy(write_fd,buffer_size,"Realtime proxy");
+    // // Creates a proxy for the current thread
+    // proxy_fd = evl_new_proxy(write_fd,buffer_size,"Realtime proxy");
     
     // Starts the periodic timer with an offset and period of 1ms
     int err_timer = start_periodic_timer(offset, period, &tmfd);
@@ -153,20 +153,20 @@ void* periodicThread(void *arg)
     for (int j =0; j < buffer_size; j++)
     {
         // Measures time before the computation
-        evl_read_clock(CLOCK_MONOTONIC, &start);
-        for (int i = 0; i < 1000000; i++){}
+        evl_read_clock(EVL_CLOCK_MONOTONIC, &start);
+        for (int i = 0; i < 10000; i++){}
 
         // Measures time after the computation and before the wait function
-        evl_read_clock(CLOCK_MONOTONIC, &wait);
+        evl_read_clock(EVL_CLOCK_MONOTONIC, &wait);
 
         wait_next_activation(&tmfd);
         // Measures time after the wait function
-        evl_read_clock(CLOCK_MONOTONIC, &end);
+        evl_read_clock(EVL_CLOCK_MONOTONIC, &end);
 
         // Writes the computation time and the waiting time to the file
-        computation_time[j] = (wait.tv_sec - start.tv_sec) * 1000000 + (wait.tv_nsec - start.tv_nsec) / 1000;
-        waiting_time[j] = (end.tv_sec - wait.tv_sec) * 1000000 + (end.tv_nsec - wait.tv_nsec) / 1000;
-        // char *log_msg = createLogMsg(computation_time, waiting_time);
+        computation_time[j] = (wait.tv_sec - start.tv_sec) * 1000000000 + (wait.tv_nsec - start.tv_nsec);
+        waiting_time[j] = (end.tv_sec - wait.tv_sec) * 1000000000 + (end.tv_nsec - wait.tv_nsec);
+        // char *log_msg = createLogMsg(computation_time[j], waiting_time[j]);
         
         // oob_write(proxy_fd, log_msg, sizeof(log_msg));
         // delete[] log_msg;
@@ -184,6 +184,7 @@ void* periodicThread(void *arg)
 
     // close(write_fd);
     // close(proxy_fd);
+    return NULL;
 }
 
 int main(){
@@ -209,69 +210,69 @@ int main(){
     return 0;
 }
 
-int amountDigitsDeterminer(int number)
-{
-	if (number == 0)
-	{
-		return 1;
-	}
+// int amountDigitsDeterminer(int number)
+// {
+// 	if (number == 0)
+// 	{
+// 		return 1;
+// 	}
 	
-	int amountDigits = 0;
-	while (number != 0)
-	{
-		number /= 10;
-		amountDigits++;
-	}
-	return amountDigits;
-}
+// 	int amountDigits = 0;
+// 	while (number != 0)
+// 	{
+// 		number /= 10;
+// 		amountDigits++;
+// 	}
+// 	return amountDigits;
+// }
 
-char* intToASCII(int number)
-{
-    const int amountDigits = amountDigitsDeterminer(number);
-    char* myASCIIchar = new char[amountDigits + 1]; // +1 for null terminator
-    for (int i = amountDigits - 1; i >= 0; i--)
-    {
-        myASCIIchar[i] = static_cast<char>((number % 10) + '0');
-        number /= 10;
-    }
-    myASCIIchar[amountDigits] = '\0';
-    return myASCIIchar;
-}
+// char* intToASCII(int number)
+// {
+//     const int amountDigits = amountDigitsDeterminer(number);
+//     char* myASCIIchar = new char[amountDigits + 1]; // +1 for null terminator
+//     for (int i = amountDigits - 1; i >= 0; i--)
+//     {
+//         myASCIIchar[i] = static_cast<char>((number % 10) + '0');
+//         number /= 10;
+//     }
+//     myASCIIchar[amountDigits] = '\0';
+//     return myASCIIchar;
+// }
 
-int getCharArrayLength(const char* array)
-{
-    int length = 0;
-    while (array[length] != '\0')
-    {
-        length++;
-    }
-    return length;
-}
+// int getCharArrayLength(const char* array)
+// {
+//     int length = 0;
+//     while (array[length] != '\0')
+//     {
+//         length++;
+//     }
+//     return length;
+// }
 
-char* createLogMsg(int computeTime, int waitTime)
-{
-    char* computeChar = intToASCII(computeTime);
-    int computeCharLength = getCharArrayLength(computeChar);    
-    char* waitChar = intToASCII(waitTime);
-    int waitCharLength = getCharArrayLength(waitChar);
+// char* createLogMsg(int computeTime, int waitTime)
+// {
+//     char* computeChar = intToASCII(computeTime);
+//     int computeCharLength = getCharArrayLength(computeChar);    
+//     char* waitChar = intToASCII(waitTime);
+//     int waitCharLength = getCharArrayLength(waitChar);
     
-    // Allocate enough space for both strings, a tab, a newline, and the null terminator
-    char* logMsg = new char[computeCharLength + waitCharLength + 3];
+//     // Allocate enough space for both strings, a tab, a newline, and the null terminator
+//     char* logMsg = new char[computeCharLength + waitCharLength + 3];
 
-	// Combine both char arrays into log message
-    for (int i = 0; i < computeCharLength; i++)
-    {
-        logMsg[i] = computeChar[i];
-    }
-    logMsg[computeCharLength] = '\t';
-    for (int i = 0; i < waitCharLength; i++)
-    {
-        logMsg[computeCharLength + 1 + i] = waitChar[i];
-    }
-    logMsg[computeCharLength + 1 + waitCharLength] = '\n';
-    logMsg[computeCharLength + 1 + waitCharLength + 1] = '\0';
+// 	// Combine both char arrays into log message
+//     for (int i = 0; i < computeCharLength; i++)
+//     {
+//         logMsg[i] = computeChar[i];
+//     }
+//     logMsg[computeCharLength] = '\t';
+//     for (int i = 0; i < waitCharLength; i++)
+//     {
+//         logMsg[computeCharLength + 1 + i] = waitChar[i];
+//     }
+//     logMsg[computeCharLength + 1 + waitCharLength] = '\n';
+//     logMsg[computeCharLength + 1 + waitCharLength + 1] = '\0';
     
-    delete[] computeChar;
-    delete[] waitChar;
-    return logMsg;
-}
+//     delete[] computeChar;
+//     delete[] waitChar;
+//     return logMsg;
+// }
