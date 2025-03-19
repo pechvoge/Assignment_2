@@ -59,7 +59,7 @@ int start_periodic_timer(uint64_t offset, int period, int* tmfd)
     attrs.sched_policy = SCHED_FIFO;
     attrs.sched_priority = 1;
     timer_t timerid;
-    int err_settime, err_attach, err_core, err_sched;
+    int err_settime, err_attach, err_core, err_sched, err_clock;
     struct timespec current_time;
    
     // Set CPU affinity to core 1 before attaching to EVL core
@@ -90,7 +90,7 @@ int start_periodic_timer(uint64_t offset, int period, int* tmfd)
 
     // Creates the EVL timer with a monotonic clock
     *tmfd = evl_new_timer(EVL_CLOCK_MONOTONIC);
-    if (err_creation < 0)
+    if (*tmfd < 0)
     {
         fprintf(stderr, "Timer creation failed: %s\n", strerror(tmfd));
         return -1;
@@ -110,7 +110,7 @@ int start_periodic_timer(uint64_t offset, int period, int* tmfd)
     t.it_interval.tv_nsec = (period % 1000000)*1000;
 
     // Sets the EVL timer
-    err_settime = evl_set_timer(err_creation, &t, NULL);
+    err_settime = evl_set_timer(*tmfd, &t, NULL);
     if (err_settime < 0)
     {
         perror("Setting timer failed.");
@@ -150,7 +150,7 @@ void* periodicThread(void *arg)
         perror("Starting periodic timer failed.");
     }
 
-    for (int j =0, j < buffer_size, j++)
+    for (int j =0; j < buffer_size; j++)
     {
         // Measures time before the computation
         evl_read_clock(CLOCK_MONOTONIC, &start);
@@ -175,7 +175,7 @@ void* periodicThread(void *arg)
     evl_detach_self();
 
     // Writes timing data to file
-    for (int i = 0, i < buffer_size, i++)
+    for (int i = 0; i < buffer_size; i++)
     {
         timeLog << computation_time[i] << "\t"; //ms
         timeLog << waiting_time[i] << "\n"; //ms
