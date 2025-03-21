@@ -18,12 +18,8 @@
 #include <sys/mman.h>
 #include <sched.h>
 
-int amountDigitsDeterminer(int number);
-char* intToASCII(int number);
-int getCharArrayLength(const char* array);
-char* createLogMsg(int computeTime, int waitTime);
-
 // This function has been adapted from EVL: https://v4.xenomai.org/core/user-api/timer/
+// It adds a nanosecond to a timespec to create an offset
 void timespec_add_ns(struct timespec *__restrict r,
                   const struct timespec *__restrict t,
              long offset)
@@ -34,6 +30,8 @@ void timespec_add_ns(struct timespec *__restrict r,
     ns = offset - s * 1000000000;
     r->tv_sec = t->tv_sec + s;
     r->tv_nsec = t->tv_nsec + ns;
+
+    // If the nanosecond value is greater than 1 second, add 1 second to the second value and subtract 1 second from the nanosecond value
     if (r->tv_nsec >= 1000000000) {
         r->tv_sec++;
         r->tv_nsec -= 1000000000;
@@ -127,21 +125,13 @@ void* periodicThread(void *arg)
     int period = 1000; //1 ms
     constexpr int buffer_size = 30000;
     struct timespec start, wait, end;
-    int write_fd, proxy_fd, tmfd;
+    int tmfd;
     float computation_time[buffer_size], waiting_time[buffer_size];
     std::ofstream timeLog("timeLog.txt");
     if(!timeLog.is_open())
     {
         perror("Time log could not be opened.");
     }
-
-    // write_fd = open("./timeLogProxy.txt", O_WRONLY|O_CREAT);
-    // if(write_fd < 0)
-    //     {
-    //         perror("Time log could not be opened.");
-    //     }
-    // // Creates a proxy for the current thread
-    // proxy_fd = evl_new_proxy(write_fd,buffer_size,"Realtime proxy");
     
     // Starts the periodic timer with an offset and period of 1ms
     int err_timer = start_periodic_timer(offset, period, &tmfd);
@@ -166,36 +156,24 @@ void* periodicThread(void *arg)
         // Writes the computation time and the waiting time to the file
         computation_time[j] = (wait.tv_sec - start.tv_sec) * 1000000000 + (wait.tv_nsec - start.tv_nsec);
         waiting_time[j] = (end.tv_sec - wait.tv_sec) * 1000000000 + (end.tv_nsec - wait.tv_nsec);
-        // char *log_msg = createLogMsg(computation_time[j], waiting_time[j]);
-        
-        // oob_write(proxy_fd, log_msg, sizeof(log_msg));
-        // delete[] log_msg;
     }
+
     // Detaches the current thread from the EVL core
     evl_detach_self();
 
     // Writes timing data to file
     for (int i = 0; i < buffer_size; i++)
     {
-        timeLog << computation_time[i] << "\t"; //ms
-        timeLog << waiting_time[i] << "\n"; //ms
+        timeLog << computation_time[i] << "\t"; //ns
+        timeLog << waiting_time[i] << "\n"; //ns
     }
     timeLog.close();
-
-    // close(write_fd);
-    // close(proxy_fd);
     return NULL;
 }
 
 int main(){
     // Locking all current and future memory allocations in RAM
     mlockall(MCL_CURRENT | MCL_FUTURE);
-
-    // Sets scheduling policy to Round Robin and ensures EVL is out of band
-    // pthread_attr_t attr;
-    // pthread_attr_init(&attr);
-    // pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
-    // pthread_attr_setschedpolicy(&attr, SCHED_RR);
     
     // Creates a new thread
     pthread_t thread;
@@ -209,70 +187,3 @@ int main(){
     pthread_join(thread, NULL);
     return 0;
 }
-
-// int amountDigitsDeterminer(int number)
-// {
-// 	if (number == 0)
-// 	{
-// 		return 1;
-// 	}
-	
-// 	int amountDigits = 0;
-// 	while (number != 0)
-// 	{
-// 		number /= 10;
-// 		amountDigits++;
-// 	}
-// 	return amountDigits;
-// }
-
-// char* intToASCII(int number)
-// {
-//     const int amountDigits = amountDigitsDeterminer(number);
-//     char* myASCIIchar = new char[amountDigits + 1]; // +1 for null terminator
-//     for (int i = amountDigits - 1; i >= 0; i--)
-//     {
-//         myASCIIchar[i] = static_cast<char>((number % 10) + '0');
-//         number /= 10;
-//     }
-//     myASCIIchar[amountDigits] = '\0';
-//     return myASCIIchar;
-// }
-
-// int getCharArrayLength(const char* array)
-// {
-//     int length = 0;
-//     while (array[length] != '\0')
-//     {
-//         length++;
-//     }
-//     return length;
-// }
-
-// char* createLogMsg(int computeTime, int waitTime)
-// {
-//     char* computeChar = intToASCII(computeTime);
-//     int computeCharLength = getCharArrayLength(computeChar);    
-//     char* waitChar = intToASCII(waitTime);
-//     int waitCharLength = getCharArrayLength(waitChar);
-    
-//     // Allocate enough space for both strings, a tab, a newline, and the null terminator
-//     char* logMsg = new char[computeCharLength + waitCharLength + 3];
-
-// 	// Combine both char arrays into log message
-//     for (int i = 0; i < computeCharLength; i++)
-//     {
-//         logMsg[i] = computeChar[i];
-//     }
-//     logMsg[computeCharLength] = '\t';
-//     for (int i = 0; i < waitCharLength; i++)
-//     {
-//         logMsg[computeCharLength + 1 + i] = waitChar[i];
-//     }
-//     logMsg[computeCharLength + 1 + waitCharLength] = '\n';
-//     logMsg[computeCharLength + 1 + waitCharLength + 1] = '\0';
-    
-//     delete[] computeChar;
-//     delete[] waitChar;
-//     return logMsg;
-// }
