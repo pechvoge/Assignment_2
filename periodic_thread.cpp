@@ -73,10 +73,12 @@ int start_periodic_timer(uint64_t offset, int period)
 
 void* periodicThread(void *arg)
 {
-    // Initialization
+    // Initialization of the offset, period and timing structures
     uint64_t offset = 1000; //1 ms
     int period = 1000; //1 ms
     struct timespec start, wait, end;
+
+    // Opens the log file
     std::ofstream timeLog("timeLog.txt");
     if(!timeLog.is_open())
     {

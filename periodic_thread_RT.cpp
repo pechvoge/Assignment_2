@@ -41,7 +41,7 @@ void timespec_add_ns(struct timespec *__restrict r,
 void wait_next_activation(const int* tmfd)
 {
     __u64 ticks;
-    // Waits until the next activation
+    // Waits until the next activation of the periodic timer
     int rfd = oob_read(*tmfd, &ticks, sizeof(ticks));
     if(rfd < 0)
     {
@@ -51,14 +51,16 @@ void wait_next_activation(const int* tmfd)
 
 int start_periodic_timer(uint64_t offset, int period, int* tmfd)
 {
-    // Initialization
+    // Initialization of timer value, scheduling attributes and current time structures, timer ID and error variables
     struct itimerspec t;
     struct evl_sched_attrs attrs;
-    attrs.sched_policy = SCHED_FIFO;
-    attrs.sched_priority = 1;
     timer_t timerid;
     int err_settime, err_attach, err_core, err_sched, err_clock;
     struct timespec current_time;
+
+    // FIFO scheduling policy with a priority of 99
+    attrs.sched_policy = SCHED_FIFO;
+    attrs.sched_priority = 99;    
    
     // Set CPU affinity to core 1 before attaching to EVL core
     cpu_set_t cpu_set;
@@ -79,6 +81,7 @@ int start_periodic_timer(uint64_t offset, int period, int* tmfd)
         return -1;
     }
 
+    // Sets the scheduling attributes
     err_sched = evl_set_schedattr(err_attach, &attrs);
     if (err_sched != 0)
     {
@@ -102,12 +105,12 @@ int start_periodic_timer(uint64_t offset, int period, int* tmfd)
         return -1;
     }
 
-    // Sets the timer values
+    // Sets the timer values with an offset and period of 1ms
     timespec_add_ns(&t.it_value, &current_time, offset);
     t.it_interval.tv_sec = period / 1000000;
     t.it_interval.tv_nsec = (period % 1000000)*1000;
 
-    // Sets the EVL timer
+    // Sets the EVL timer with the timer values
     err_settime = evl_set_timer(*tmfd, &t, NULL);
     if (err_settime < 0)
     {
@@ -120,13 +123,15 @@ int start_periodic_timer(uint64_t offset, int period, int* tmfd)
 
 void* periodicThread(void *arg)
 {
-    // Initialization
+    // Initialization of the offset, period, buffer size, timing structures and arrays
     uint64_t offset = 1000; //1 ms
     int period = 1000; //1 ms
     constexpr int buffer_size = 30000;
     struct timespec start, wait, end;
     int tmfd;
     float computation_time[buffer_size], waiting_time[buffer_size];
+
+    // Opens the log file
     std::ofstream timeLog("timeLog.txt");
     if(!timeLog.is_open())
     {
